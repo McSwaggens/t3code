@@ -166,8 +166,13 @@ export const make = Effect.gen(function* () {
   const refresh = Effect.fn("ModelManifest.refresh")(function* () {
     yield* ensureDiskCacheLoaded;
     const now = yield* Clock.currentTimeMillis;
-    if (fetchedAtMs !== null && now - fetchedAtMs < MANIFEST_TTL_MS) return manifest;
-    if (lastAttemptMs !== null && now - lastAttemptMs < MANIFEST_RETRY_MS) return manifest;
+    // A timestamp in the future means the wall clock moved backwards (the
+    // disk cache crosses restarts, so monotonic time cannot cover it). Treat
+    // it as expired: the refetch rewrites both timestamps and self-heals.
+    const isWithin = (sinceMs: number | null, windowMs: number) =>
+      sinceMs !== null && now >= sinceMs && now - sinceMs < windowMs;
+    if (isWithin(fetchedAtMs, MANIFEST_TTL_MS)) return manifest;
+    if (isWithin(lastAttemptMs, MANIFEST_RETRY_MS)) return manifest;
 
     // The same switch that gates provider CLI update checks. It stops network
     // fetches only: a manifest already cached on disk from an earlier fetch
