@@ -121,8 +121,9 @@ export class ModelManifest extends Context.Service<
     /** Manifest already in memory (disk cache or bundle); never fetches.
      * For pending snapshots, which must publish instantly. */
     readonly current: Effect.Effect<ModelManifestData>;
-    /** Manifest after a TTL-gated remote refresh; never fails.
-     * For provider checks, which already tolerate multi-second probes. */
+    /** Manifest after a TTL-gated remote refresh; never fails. Drivers fork
+     * this into their instance scope and classify with `current`, so a slow
+     * fetch delays nothing and the next check applies the update. */
     readonly refreshed: Effect.Effect<ModelManifestData>;
   }
 >()("t3/provider/ModelManifest") {}
