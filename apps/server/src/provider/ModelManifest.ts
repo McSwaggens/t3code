@@ -119,19 +119,22 @@ export class ModelManifest extends Context.Service<
   ModelManifest,
   {
     /** Manifest already in memory (disk cache or bundle); never fetches.
-     * For pending snapshots, which must publish instantly. */
+     * Snapshot classification reads this, so it never waits on the network. */
     readonly current: Effect.Effect<ModelManifestData>;
-    /** Manifest after a TTL-gated remote refresh; never fails. Drivers fork
-     * this into their instance scope and classify with `current`, so a slow
-     * fetch delays nothing and the next check applies the update. */
-    readonly refreshed: Effect.Effect<ModelManifestData>;
+    /** Manifest after a TTL-gated remote refresh; never fails. */
+    readonly refresh: Effect.Effect<ModelManifestData>;
+    /** Forks `refresh` into the service's own scope. Drivers call this from
+     * provider checks: the fetch is process-shared state, so it must survive
+     * the teardown of whichever instance happened to trigger it. */
+    readonly refreshInBackground: Effect.Effect<void>;
   }
 >()("t3/provider/ModelManifest") {}
 
 /** Constant service for tests and callers that only need the bundled data. */
 export const BundledOnlyModelManifest: ModelManifest["Service"] = {
   current: Effect.succeed(BUNDLED_MODEL_MANIFEST),
-  refreshed: Effect.succeed(BUNDLED_MODEL_MANIFEST),
+  refresh: Effect.succeed(BUNDLED_MODEL_MANIFEST),
+  refreshInBackground: Effect.void,
 };
 
 export const layerTest = Layer.succeed(ModelManifest, BundledOnlyModelManifest);
@@ -142,6 +145,7 @@ export const make = Effect.gen(function* () {
   const config = yield* ServerConfig;
   const settingsService = yield* ServerSettings.ServerSettingsService;
   const httpClient = yield* HttpClient.HttpClient;
+  const serviceScope = yield* Effect.scope;
 
   const cachePath = path.join(config.stateDir, "model-manifest.json");
   let manifest = BUNDLED_MODEL_MANIFEST;
@@ -205,9 +209,12 @@ export const make = Effect.gen(function* () {
     return manifest;
   });
 
+  const guardedRefresh = refreshSemaphore.withPermits(1)(refresh());
+
   return ModelManifest.of({
     current: ensureDiskCacheLoaded.pipe(Effect.map(() => manifest)),
-    refreshed: refreshSemaphore.withPermits(1)(refresh()),
+    refresh: guardedRefresh,
+    refreshInBackground: Effect.forkIn(guardedRefresh, serviceScope).pipe(Effect.asVoid),
   });
 });
 

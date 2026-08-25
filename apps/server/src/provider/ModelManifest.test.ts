@@ -123,7 +123,7 @@ describe("ModelManifest service", () => {
   it.live("prefers a fetched manifest over the bundle and caches it to disk", () =>
     Effect.gen(function* () {
       const service = yield* make;
-      const refreshed = yield* service.refreshed;
+      const refreshed = yield* service.refresh;
       assert.deepStrictEqual(refreshed, REMOTE_MANIFEST);
       assert.isTrue(isLegacyModel(refreshed, CODEX, "gpt-5.6-sol"));
       assert.isFalse(isLegacyModel(refreshed, CODEX, "gpt-5.4"));
@@ -146,7 +146,7 @@ describe("ModelManifest service", () => {
   it.live("keeps the bundled manifest when the remote payload is malformed", () =>
     Effect.gen(function* () {
       const service = yield* make;
-      assert.deepStrictEqual(yield* service.refreshed, BUNDLED_MODEL_MANIFEST);
+      assert.deepStrictEqual(yield* service.refresh, BUNDLED_MODEL_MANIFEST);
     }).pipe(
       Effect.scoped,
       Effect.provide(
@@ -169,7 +169,7 @@ describe("ModelManifest service", () => {
           }),
         ),
       );
-      assert.deepStrictEqual(yield* service.refreshed, BUNDLED_MODEL_MANIFEST);
+      assert.deepStrictEqual(yield* service.refresh, BUNDLED_MODEL_MANIFEST);
       assert.strictEqual(fetchCount, 0);
     }).pipe(
       Effect.scoped,
