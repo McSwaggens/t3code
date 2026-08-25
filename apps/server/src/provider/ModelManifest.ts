@@ -146,22 +146,24 @@ export const make = Effect.gen(function* () {
   let manifest = BUNDLED_MODEL_MANIFEST;
   let fetchedAtMs: number | null = null;
   let lastAttemptMs: number | null = null;
-  let diskCacheLoaded = false;
   const refreshSemaphore = yield* Semaphore.make(1);
 
-  const ensureDiskCacheLoaded = Effect.gen(function* () {
-    if (diskCacheLoaded) return;
-    diskCacheLoaded = true;
-    const fromDisk = yield* fileSystem.readFileString(cachePath).pipe(
-      Effect.flatMap((raw) => decodeManifestCache(raw)),
-      Effect.catchCause(() => Effect.succeed(null)),
-    );
-    if (fromDisk === null) return;
-    // The disk copy is the last-seen remote manifest, so it outranks the
-    // bundle even when stale: it is refreshed on the next successful fetch.
-    manifest = fromDisk.manifest;
-    fetchedAtMs = fromDisk.fetchedAtMs;
-  });
+  // `Effect.cached` makes concurrent first readers await the same disk load
+  // rather than racing a "loaded" flag. Only `refreshed` takes the fetch
+  // semaphore; `current` must never wait behind an in-flight network refresh.
+  const ensureDiskCacheLoaded = yield* Effect.cached(
+    Effect.gen(function* () {
+      const fromDisk = yield* fileSystem.readFileString(cachePath).pipe(
+        Effect.flatMap((raw) => decodeManifestCache(raw)),
+        Effect.catchCause(() => Effect.succeed(null)),
+      );
+      if (fromDisk === null) return;
+      // The disk copy is the last-seen remote manifest, so it outranks the
+      // bundle even when stale: it is refreshed on the next successful fetch.
+      manifest = fromDisk.manifest;
+      fetchedAtMs = fromDisk.fetchedAtMs;
+    }),
+  );
 
   const refresh = Effect.fn("ModelManifest.refresh")(function* () {
     yield* ensureDiskCacheLoaded;
@@ -203,9 +205,7 @@ export const make = Effect.gen(function* () {
   });
 
   return ModelManifest.of({
-    current: refreshSemaphore.withPermits(1)(
-      ensureDiskCacheLoaded.pipe(Effect.map(() => manifest)),
-    ),
+    current: ensureDiskCacheLoaded.pipe(Effect.map(() => manifest)),
     refreshed: refreshSemaphore.withPermits(1)(refresh()),
   });
 });

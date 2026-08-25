@@ -36,7 +36,7 @@ import {
 } from "../Layers/ClaudeProvider.ts";
 import { ProviderEventLoggers } from "../Layers/ProviderEventLoggers.ts";
 import { makeManagedServerProvider } from "../makeManagedServerProvider.ts";
-import { applyModelManifest, ModelManifest } from "../ModelManifest.ts";
+import * as ModelManifest from "../ModelManifest.ts";
 import {
   defaultProviderContinuationIdentity,
   type ProviderDriver,
@@ -88,7 +88,7 @@ export type ClaudeDriverEnv =
   | Crypto.Crypto
   | FileSystem.FileSystem
   | HttpClient.HttpClient
-  | ModelManifest
+  | ModelManifest.ModelManifest
   | Path.Path
   | ProviderEventLoggers
   | ServerConfig
@@ -127,7 +127,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv> = {
       const httpClient = yield* HttpClient.HttpClient;
       const serverSettings = yield* ServerSettingsService;
       const eventLoggers = yield* ProviderEventLoggers;
-      const modelManifest = yield* ModelManifest;
+      const modelManifest = yield* ModelManifest.ModelManifest;
       const processEnv = mergeProviderInstanceEnvironment(environment);
       const fallbackContinuationIdentity = defaultProviderContinuationIdentity({
         driverKind: DRIVER_KIND,
@@ -176,7 +176,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv> = {
           cwd,
         ),
         modelManifest.refreshed,
-        (draft, manifest) => stampIdentity(applyModelManifest(draft, manifest, DRIVER_KIND)),
+        (draft, manifest) =>
+          stampIdentity(ModelManifest.applyModelManifest(draft, manifest, DRIVER_KIND)),
         { concurrent: true },
       ).pipe(
         Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
@@ -194,7 +195,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv> = {
           Effect.zipWith(
             makePendingClaudeProvider(settings.provider),
             modelManifest.current,
-            (draft, manifest) => stampIdentity(applyModelManifest(draft, manifest, DRIVER_KIND)),
+            (draft, manifest) =>
+              stampIdentity(ModelManifest.applyModelManifest(draft, manifest, DRIVER_KIND)),
           ),
         checkProvider,
         enrichSnapshot: ({ settings, snapshot, publishSnapshot }) =>

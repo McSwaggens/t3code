@@ -39,7 +39,7 @@ import { makeCodexAdapter } from "../Layers/CodexAdapter.ts";
 import { checkCodexProviderStatus, makePendingCodexProvider } from "../Layers/CodexProvider.ts";
 import { ProviderEventLoggers } from "../Layers/ProviderEventLoggers.ts";
 import { makeManagedServerProvider } from "../makeManagedServerProvider.ts";
-import { applyModelManifest, ModelManifest } from "../ModelManifest.ts";
+import * as ModelManifest from "../ModelManifest.ts";
 import type { ProviderDriver, ProviderInstance } from "../ProviderDriver.ts";
 import type { ServerProviderDraft } from "../providerSnapshot.ts";
 import { mergeProviderInstanceEnvironment } from "../ProviderInstanceEnvironment.ts";
@@ -79,7 +79,7 @@ export type CodexDriverEnv =
   | Crypto.Crypto
   | FileSystem.FileSystem
   | HttpClient.HttpClient
-  | ModelManifest
+  | ModelManifest.ModelManifest
   | Path.Path
   | ProviderEventLoggers
   | ServerConfig
@@ -121,7 +121,7 @@ export const CodexDriver: ProviderDriver<CodexSettings, CodexDriverEnv> = {
       const httpClient = yield* HttpClient.HttpClient;
       const serverSettings = yield* ServerSettingsService;
       const eventLoggers = yield* ProviderEventLoggers;
-      const modelManifest = yield* ModelManifest;
+      const modelManifest = yield* ModelManifest.ModelManifest;
       const processEnv = mergeProviderInstanceEnvironment(environment);
       const homeLayout = yield* resolveCodexHomeLayout(config);
       const continuationIdentity = codexContinuationIdentity(homeLayout);
@@ -174,7 +174,8 @@ export const CodexDriver: ProviderDriver<CodexSettings, CodexDriverEnv> = {
       const checkProvider = Effect.zipWith(
         checkCodexProviderStatus(effectiveConfig, undefined, processEnv),
         modelManifest.refreshed,
-        (draft, manifest) => stampIdentity(applyModelManifest(draft, manifest, DRIVER_KIND)),
+        (draft, manifest) =>
+          stampIdentity(ModelManifest.applyModelManifest(draft, manifest, DRIVER_KIND)),
         { concurrent: true },
       ).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner));
       const snapshotSettings = makeProviderSnapshotSettingsSource(effectiveConfig, serverSettings);
@@ -187,7 +188,8 @@ export const CodexDriver: ProviderDriver<CodexSettings, CodexDriverEnv> = {
           Effect.zipWith(
             makePendingCodexProvider(settings.provider),
             modelManifest.current,
-            (draft, manifest) => stampIdentity(applyModelManifest(draft, manifest, DRIVER_KIND)),
+            (draft, manifest) =>
+              stampIdentity(ModelManifest.applyModelManifest(draft, manifest, DRIVER_KIND)),
           ),
         checkProvider,
         enrichSnapshot: ({ settings, snapshot, publishSnapshot }) =>
