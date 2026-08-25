@@ -303,6 +303,7 @@ export function projectEvent(
             archivedAt: null,
             settledOverride: null,
             settledAt: null,
+            unsettledAt: null,
             snoozedUntil: null,
             snoozedAt: null,
             deletedAt: null,
@@ -364,6 +365,7 @@ export function projectEvent(
           threads: updateThread(nextBase.threads, payload.threadId, {
             settledOverride: "settled",
             settledAt: payload.settledAt,
+            unsettledAt: null,
             updatedAt: payload.updatedAt,
           }),
         })),
@@ -376,6 +378,9 @@ export function projectEvent(
           threads: updateThread(nextBase.threads, payload.threadId, {
             settledOverride: payload.reason === "user" ? "active" : null,
             settledAt: null,
+            // Re-entry stamp for active-list ordering. Idempotent re-unsettles
+            // carry the thread's previous updatedAt, so duplicates don't churn.
+            unsettledAt: payload.updatedAt,
             updatedAt: payload.updatedAt,
           }),
         })),
