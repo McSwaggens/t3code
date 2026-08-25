@@ -39,6 +39,7 @@ import { makeCodexAdapter } from "../Layers/CodexAdapter.ts";
 import { checkCodexProviderStatus, makePendingCodexProvider } from "../Layers/CodexProvider.ts";
 import { ProviderEventLoggers } from "../Layers/ProviderEventLoggers.ts";
 import { makeManagedServerProvider } from "../makeManagedServerProvider.ts";
+import { applyModelManifest, ModelManifest } from "../ModelManifest.ts";
 import type { ProviderDriver, ProviderInstance } from "../ProviderDriver.ts";
 import type { ServerProviderDraft } from "../providerSnapshot.ts";
 import { mergeProviderInstanceEnvironment } from "../ProviderInstanceEnvironment.ts";
@@ -78,6 +79,7 @@ export type CodexDriverEnv =
   | Crypto.Crypto
   | FileSystem.FileSystem
   | HttpClient.HttpClient
+  | ModelManifest
   | Path.Path
   | ProviderEventLoggers
   | ServerConfig
@@ -119,6 +121,7 @@ export const CodexDriver: ProviderDriver<CodexSettings, CodexDriverEnv> = {
       const httpClient = yield* HttpClient.HttpClient;
       const serverSettings = yield* ServerSettingsService;
       const eventLoggers = yield* ProviderEventLoggers;
+      const modelManifest = yield* ModelManifest;
       const processEnv = mergeProviderInstanceEnvironment(environment);
       const homeLayout = yield* resolveCodexHomeLayout(config);
       const continuationIdentity = codexContinuationIdentity(homeLayout);
@@ -166,10 +169,14 @@ export const CodexDriver: ProviderDriver<CodexSettings, CodexDriverEnv> = {
       // in as instance rebuilds from the registry rather than in-place
       // updates. Pre-provide `ChildProcessSpawner` so the check fits
       // `makeManagedServerProvider.checkProvider`'s `R = never`.
-      const checkProvider = checkCodexProviderStatus(effectiveConfig, undefined, processEnv).pipe(
-        Effect.map(stampIdentity),
-        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
-      );
+      // The manifest refresh runs concurrently with the CLI probe, so a
+      // TTL-expired fetch adds no wall-clock to the provider check.
+      const checkProvider = Effect.zipWith(
+        checkCodexProviderStatus(effectiveConfig, undefined, processEnv),
+        modelManifest.refreshed,
+        (draft, manifest) => stampIdentity(applyModelManifest(draft, manifest, DRIVER_KIND)),
+        { concurrent: true },
+      ).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner));
       const snapshotSettings = makeProviderSnapshotSettingsSource(effectiveConfig, serverSettings);
       const snapshot = yield* makeManagedServerProvider<ProviderSnapshotSettings<CodexSettings>>({
         maintenanceCapabilities,
@@ -177,7 +184,11 @@ export const CodexDriver: ProviderDriver<CodexSettings, CodexDriverEnv> = {
         streamSettings: snapshotSettings.streamSettings,
         haveSettingsChanged: haveProviderSnapshotSettingsChanged,
         initialSnapshot: (settings) =>
-          makePendingCodexProvider(settings.provider).pipe(Effect.map(stampIdentity)),
+          Effect.zipWith(
+            makePendingCodexProvider(settings.provider),
+            modelManifest.current,
+            (draft, manifest) => stampIdentity(applyModelManifest(draft, manifest, DRIVER_KIND)),
+          ),
         checkProvider,
         enrichSnapshot: ({ settings, snapshot, publishSnapshot }) =>
           enrichProviderSnapshotWithVersionAdvisory(snapshot, maintenanceCapabilities, {

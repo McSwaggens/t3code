@@ -36,6 +36,7 @@ import {
 } from "../Layers/ClaudeProvider.ts";
 import { ProviderEventLoggers } from "../Layers/ProviderEventLoggers.ts";
 import { makeManagedServerProvider } from "../makeManagedServerProvider.ts";
+import { applyModelManifest, ModelManifest } from "../ModelManifest.ts";
 import {
   defaultProviderContinuationIdentity,
   type ProviderDriver,
@@ -87,6 +88,7 @@ export type ClaudeDriverEnv =
   | Crypto.Crypto
   | FileSystem.FileSystem
   | HttpClient.HttpClient
+  | ModelManifest
   | Path.Path
   | ProviderEventLoggers
   | ServerConfig
@@ -125,6 +127,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv> = {
       const httpClient = yield* HttpClient.HttpClient;
       const serverSettings = yield* ServerSettingsService;
       const eventLoggers = yield* ProviderEventLoggers;
+      const modelManifest = yield* ModelManifest;
       const processEnv = mergeProviderInstanceEnvironment(environment);
       const fallbackContinuationIdentity = defaultProviderContinuationIdentity({
         driverKind: DRIVER_KIND,
@@ -163,13 +166,19 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv> = {
       });
       const capabilitiesCacheKey = yield* makeClaudeCapabilitiesCacheKey(effectiveConfig, cwd);
 
-      const checkProvider = checkClaudeProviderStatus(
-        effectiveConfig,
-        () => Cache.get(capabilitiesProbeCache, capabilitiesCacheKey),
-        processEnv,
-        cwd,
+      // The manifest refresh runs concurrently with the CLI probe, so a
+      // TTL-expired fetch adds no wall-clock to the provider check.
+      const checkProvider = Effect.zipWith(
+        checkClaudeProviderStatus(
+          effectiveConfig,
+          () => Cache.get(capabilitiesProbeCache, capabilitiesCacheKey),
+          processEnv,
+          cwd,
+        ),
+        modelManifest.refreshed,
+        (draft, manifest) => stampIdentity(applyModelManifest(draft, manifest, DRIVER_KIND)),
+        { concurrent: true },
       ).pipe(
-        Effect.map(stampIdentity),
         Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
         Effect.provideService(FileSystem.FileSystem, fileSystem),
         Effect.provideService(Path.Path, path),
@@ -182,7 +191,11 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv> = {
         streamSettings: snapshotSettings.streamSettings,
         haveSettingsChanged: haveProviderSnapshotSettingsChanged,
         initialSnapshot: (settings) =>
-          makePendingClaudeProvider(settings.provider).pipe(Effect.map(stampIdentity)),
+          Effect.zipWith(
+            makePendingClaudeProvider(settings.provider),
+            modelManifest.current,
+            (draft, manifest) => stampIdentity(applyModelManifest(draft, manifest, DRIVER_KIND)),
+          ),
         checkProvider,
         enrichSnapshot: ({ settings, snapshot, publishSnapshot }) =>
           enrichProviderSnapshotWithVersionAdvisory(snapshot, maintenanceCapabilities, {
