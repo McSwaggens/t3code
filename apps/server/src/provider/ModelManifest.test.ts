@@ -5,8 +5,8 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { HttpClient, HttpClientResponse } from "effect/unstable/http";
 
-import { ServerConfig } from "../config.ts";
-import { ServerSettingsService } from "../serverSettings.ts";
+import * as ServerConfig from "../config.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import {
   BUNDLED_MODEL_MANIFEST,
   classifyModels,
@@ -111,11 +111,11 @@ const httpClientLayer = (handler: () => Response) =>
 const serviceLayers = (input: {
   readonly prefix: string;
   readonly response: () => Response;
-  readonly settings?: Parameters<typeof ServerSettingsService.layerTest>[0];
+  readonly settings?: Parameters<typeof ServerSettings.layerTest>[0];
 }) =>
   ServerConfig.layerTest(process.cwd(), { prefix: input.prefix }).pipe(
     Layer.provideMerge(NodeServices.layer),
-    Layer.provideMerge(ServerSettingsService.layerTest(input.settings ?? {})),
+    Layer.provideMerge(ServerSettings.layerTest(input.settings ?? {})),
     Layer.provideMerge(httpClientLayer(input.response)),
   );
 
