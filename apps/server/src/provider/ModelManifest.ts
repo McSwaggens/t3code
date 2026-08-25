@@ -169,8 +169,10 @@ export const make = Effect.gen(function* () {
     if (fetchedAtMs !== null && now - fetchedAtMs < MANIFEST_TTL_MS) return manifest;
     if (lastAttemptMs !== null && now - lastAttemptMs < MANIFEST_RETRY_MS) return manifest;
 
-    // The same switch that gates provider CLI update checks: users who turned
-    // off phoning home for version metadata keep the bundled classification.
+    // The same switch that gates provider CLI update checks. It stops network
+    // fetches only: a manifest already cached on disk from an earlier fetch
+    // stays in effect, since the setting is about phoning home, not about
+    // discarding data the server already holds.
     const settings = yield* settingsService.getSettings.pipe(
       Effect.catchCause(() => Effect.succeed(null)),
     );
